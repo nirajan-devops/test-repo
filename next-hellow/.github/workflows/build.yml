@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    uses: nirajan-devops/ci-workflows/.github/workflows/ci.yml@main
+    uses: nirajan-devops/test-repo/ci-workflows/.github/workflows/ci.yml@main
     with:
       language: next
       build-command: npx next build
