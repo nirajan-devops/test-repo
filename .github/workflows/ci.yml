@@ -66,17 +66,17 @@ jobs:
             fi
 
             # Log in to GHCR inside the server
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
+            echo "${{ secrets.GHCR_TOKEN }}" | sudo docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
 
             # Stop and remove existing container
-            docker stop ${{ inputs.container-name }} || true
-            docker rm ${{ inputs.container-name }} || true
+            sudo docker stop ${{ inputs.container-name }} || true
+            sudo docker rm ${{ inputs.container-name }} || true
 
             # Pull latest image
-            docker pull ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
+            sudo docker pull ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
 
             # Run container
-            docker run -d -p ${{ inputs.port }}:3000 --name ${{ inputs.container-name }} ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
+            sudo docker run -d -p ${{ inputs.port }}:3000 --name ${{ inputs.container-name }} ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
       - name: Notify Slack on Success
         if: success()
         run: |
