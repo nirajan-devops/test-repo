@@ -1,4 +1,3 @@
-# .github/workflows/deploy.yml
 name: Reusable Deploy to EC2 via GHCR
 
 on:
