@@ -1,97 +1,81 @@
-name: Universal CI Workflow
+# .github/workflows/deploy.yml (Reusable)
+name: Reusable Docker Deploy
 
 on:
   workflow_call:
     inputs:
-      language:
-        type: string
+      image-name:
         required: true
-        description: "Project language: node, react, next, python, php, java"
-      build-command:
         type: string
-        required: false
-        default: ""
-        description: "Custom build command to run"
-      working-directory:
+      container-name:
+        required: true
         type: string
-        required: false
-        default: "."
-        description: "Directory where the code lives"
-      test-command:
+      port:
+        required: true
         type: string
+      dockerfile-path:
         required: false
-        default: ""
-        description: "Custom test command to run"
+        type: string
+        default: "Dockerfile"
+    secrets:
+      HOST:
+        required: true
+      USERNAME:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      ########################
-      # Setup per language
-      ########################
-      - name: Set up Node.js
-        if: ${{ contains(fromJson('["node", "next", "react"]'), inputs.language) }}
-        uses: actions/setup-node@v4
+      - name: Build Docker image
+        run: docker build -t ${{ inputs.image-name }} -f ${{ inputs.dockerfile-path }} .
+
+      - name: Save Docker image to tar
+        run: docker save ${{ inputs.image-name }} -o app.tar
+
+      - name: Copy image to server via SCP
+        uses: appleboy/scp-action@v0.1.4
         with:
-          node-version: "18"
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "app.tar"
+          target: "/home/${{ secrets.USERNAME }}/"
+          overwrite: true
 
-      - name: Set up Python
-        if: ${{ inputs.language == 'python' }}
-        uses: actions/setup-python@v5
+      - name: Install Docker and deploy container
+        uses: appleboy/ssh-action@master
         with:
-          python-version: "3.11"
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Install Docker if needed
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              sudo apt update
+              sudo apt install -y docker.io
+              sudo systemctl enable docker
+              sudo systemctl start docker
+            fi
 
-      - name: Set up PHP
-        if: ${{ inputs.language == 'php' }}
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.2"
+            cd /home/${{ secrets.USERNAME }}
 
-      - name: Set up Java
-        if: ${{ inputs.language == 'java' }}
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+            echo "Checking that app.tar exists:"
+            ls -lh app.tar
 
-      ########################
-      # Install dependencies
-      ########################
-      - name: Install dependencies
-        run: |
-          case "${{ inputs.language }}" in
-            node|next|react)
-              npm install
-              ;;
-            python)
-              pip install -r requirements.txt
-              ;;
-            php)
-              composer install
-              ;;
-            java)
-              ./mvnw install
-              ;;
-          esac
-        working-directory: ${{ inputs.working-directory }}
+            # Load the Docker image
+            sudo docker load -i app.tar
 
-      ########################
-      # Build
-      ########################
-      - name: Run build
-        if: ${{ inputs.build-command != '' }}
-        run: ${{ inputs.build-command }}
-        working-directory: ${{ inputs.working-directory }}
+            # Stop and remove existing container
+            sudo docker stop ${{ inputs.container-name }} || true
+            sudo docker rm ${{ inputs.container-name }} || true
 
-      ########################
-      # Test (Optional)
-      ########################
-      - name: Run tests
-        if: ${{ inputs.test-command != '' }}
-        run: ${{ inputs.test-command }}
-        working-directory: ${{ inputs.working-directory }}
+            # Run the new container
+            sudo docker run -d -p ${{ inputs.port }}:${{ inputs.port }} --name ${{ inputs.container-name }} ${{ inputs.image-name }}  
