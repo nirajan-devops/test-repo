@@ -28,6 +28,8 @@ on:
         required: true
       GHCR_TOKEN:
         required: true
+      SLACK_WEBHOOK_URL:
+        required: true
 
 jobs:
   deploy:
@@ -75,3 +77,16 @@ jobs:
 
             # Run container
             docker run -d -p ${{ inputs.port }}:3000 --name ${{ inputs.container-name }} ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
+      - name: Notify Slack on Success
+        if: success()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"✅ CI Workflow *${{ github.workflow }}* succeeded for `${{ github.repository }}` on branch `${{ github.ref_name }}`."}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"❌ CI Workflow *${{ github.workflow }}* failed for `${{ github.repository }}` on branch `${{ github.ref_name }}`."}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}         
