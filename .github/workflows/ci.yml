@@ -1,5 +1,5 @@
-# .github/workflows/deploy.yml (Reusable)
-name: Reusable Docker Deploy
+# .github/workflows/deploy.yml
+name: Reusable Deploy to EC2 via GHCR
 
 on:
   workflow_call:
@@ -11,20 +11,23 @@ on:
         required: true
         type: string
       port:
-        required: true
+        required: false
         type: string
+        default: "3000"
       dockerfile-path:
         required: false
         type: string
         default: "Dockerfile"
     secrets:
-      SLACK_WEBHOOK_URL:
-        required: true
       HOST:
         required: true
       USERNAME:
         required: true
       SSH_PRIVATE_KEY:
+        required: true
+      GHCR_USERNAME:
+        required: true
+      GHCR_TOKEN:
         required: true
 
 jobs:
@@ -32,65 +35,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
+
       - name: Build Docker image
-        run: docker build -t ${{ inputs.image-name }} -f ${{ inputs.dockerfile-path }} .
+        run: |
+          docker build -t ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }} -f ${{ inputs.dockerfile-path }} .
 
-      - name: Save Docker image to tar
-        run: docker save ${{ inputs.image-name }} -o app.tar
+      - name: Push image to GHCR
+        run: |
+          docker push ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
 
-      - name: Copy image to server via SCP
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "app.tar"
-          target: "/home/${{ secrets.USERNAME }}/"
-          overwrite: true
-
-      - name: Install Docker and deploy container
+      - name: SSH and deploy container
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # Install Docker if needed
+            # Install Docker if not installed
             if ! command -v docker &> /dev/null; then
-              echo "Installing Docker..."
               sudo apt update
               sudo apt install -y docker.io
               sudo systemctl enable docker
               sudo systemctl start docker
             fi
 
-            cd /home/${{ secrets.USERNAME }}
-
-            echo "Checking that app.tar exists:"
-            ls -lh app.tar
-
-            # Load the Docker image
-            sudo docker load -i app.tar
+            # Log in to GHCR inside the server
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
 
             # Stop and remove existing container
-            sudo docker stop ${{ inputs.container-name }} || true
-            sudo docker rm ${{ inputs.container-name }} || true
+            docker stop ${{ inputs.container-name }} || true
+            docker rm ${{ inputs.container-name }} || true
 
-            # Run the new container
-            sudo docker run -d -p ${{ inputs.port }}:${{ inputs.port }} --name ${{ inputs.container-name }} ${{ inputs.image-name }}
-      - name: Notify Slack on Success
-        if: success()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-            --data '{"text":"✅ CI Workflow *${{ github.workflow }}* succeeded for `${{ github.repository }}` on branch `${{ github.ref_name }}`."}' \
-            ${{ secrets.SLACK_WEBHOOK_URL }}
+            # Pull latest image
+            docker pull ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
 
-      - name: Notify Slack on Failure
-        if: failure()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-            --data '{"text":"❌ CI Workflow *${{ github.workflow }}* failed for `${{ github.repository }}` on branch `${{ github.ref_name }}`."}' \
-            ${{ secrets.SLACK_WEBHOOK_URL }}         
+            # Run container
+            docker run -d -p ${{ inputs.port }}:3000 --name ${{ inputs.container-name }} ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ inputs.image-name }}
