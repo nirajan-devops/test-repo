@@ -18,6 +18,8 @@ on:
         type: string
         default: "Dockerfile"
     secrets:
+      SLACK_WEBHOOK_URL:
+        required: true
       HOST:
         required: true
       USERNAME:
@@ -78,4 +80,17 @@ jobs:
             sudo docker rm ${{ inputs.container-name }} || true
 
             # Run the new container
-            sudo docker run -d -p ${{ inputs.port }}:${{ inputs.port }} --name ${{ inputs.container-name }} ${{ inputs.image-name }}  
+            sudo docker run -d -p ${{ inputs.port }}:${{ inputs.port }} --name ${{ inputs.container-name }} ${{ inputs.image-name }}
+      - name: Notify Slack on Success
+        if: success()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"✅ CI Workflow *${{ github.workflow }}* succeeded for `${{ github.repository }}` on branch `${{ github.ref_name }}`."}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"❌ CI Workflow *${{ github.workflow }}* failed for `${{ github.repository }}` on branch `${{ github.ref_name }}`."}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}         
